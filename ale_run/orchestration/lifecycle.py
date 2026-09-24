@@ -851,6 +851,7 @@ async def pull_agent_output(
       ``"local"``  → provider-local pull → ``<run_dir>/output/``
       ``"gs://X"`` → push from VM to ``X/<run_id>/output/`` via gsutil
       ``"oss://X"`` → push from VM to ``X/<run_id>/output/`` via ossutil
+      ``"tos://X"`` → push from VM to ``X/<run_id>/output/`` via tosutil
 
     Best-effort throughout: any failure emits an event + logs a warning
     but never aborts the run (eval still runs on the live env regardless).
@@ -930,6 +931,22 @@ async def pull_agent_output(
             writer.emit_event("output_gather_failed", transport="oss", error=str(e))
         return
 
+    # tos:// case
+    if output_path.startswith("tos://"):
+        try:
+            report = await output_pull.push_to_tos(
+                env.sandbox, task_data, run_id=run_id, bucket=output_path,
+            )
+            writer.emit_event(
+                "output_gather_done",
+                transport="tos",
+                tos_path=report.get("tos_path"),
+            )
+        except Exception as e:
+            logger.warning("push_to_tos failed (best-effort): %s", e)
+            writer.emit_event("output_gather_failed", transport="tos", error=str(e))
+        return
+
     # gs:// case
     if not output_path.startswith("gs://"):
         # loader validates this, so reaching here would mean a bypassed path.
@@ -1006,6 +1023,7 @@ async def _stage_task_data(
       ``"baked_in_sandbox"``  — image already has data; sanity-check only
       ``"gs://..."``          — gsutil rsync from a GCS bucket
       ``"oss://..."``         — ossutil sync from an Alibaba Cloud OSS bucket
+      ``"tos://..."``         — tosutil cp from a Volcengine TOS bucket
       ``"hf://..."``          — HuggingFace (stub)
 
     Returns silently when the task declares no data-staging requirements.

@@ -49,7 +49,7 @@ class AgentSpec:
 class ProviderSpec:
     """VM provider selection. ``kind`` picks the impl; ``config`` is its kwargs."""
 
-    kind: str                             # gcloud | aws | aliyun | static | docker | qemu | (stub for tests)
+    kind: str                             # gcloud | aws | aliyun | volcengine | static | docker | qemu | (stub for tests)
     config: dict[str, Any] = field(default_factory=dict)
 
 
@@ -91,7 +91,8 @@ class ArtifactsSpec:
     ``"baked_in_sandbox"`` (image already has it — the default), a
     ``"gs://<bucket>"`` prefix (rsync from GCS; public mirror is
     ``gs://ale-data-public``), an ``"oss://<bucket>"`` prefix (ossutil sync
-    from Alibaba Cloud OSS), or ``"hf://<dataset>"``.
+    from Alibaba Cloud OSS), a ``"tos://<bucket>"`` prefix (tosutil from
+    Volcengine TOS), or ``"hf://<dataset>"``.
 
     ``output_path`` controls what happens to the env's output dir after the
     agent finishes. Tri-state:
@@ -102,9 +103,9 @@ class ArtifactsSpec:
     * ``"local"`` — pull files from the VM straight to
       ``<run_dir>/output/`` via cua HTTP (no GCS round-trip). Right for
       dev / smoke / small outputs.
-    * ``"gs://<bucket>[/<prefix>]"`` / ``"oss://<bucket>[/<prefix>]"`` — push
-      from the VM to that GCS / Alibaba Cloud OSS bucket via ``gsutil`` /
-      ``ossutil`` (one hop, fast on large dirs). Nothing lands
+    * ``"gs://<bucket>[/<prefix>]"`` / ``"oss://..."`` / ``"tos://..."`` — push
+      from the VM to that GCS / Alibaba Cloud OSS / Volcengine TOS bucket via
+      ``gsutil`` / ``ossutil`` / ``tosutil`` (one hop, fast on large dirs). Nothing lands
       on the host run dir in this mode. Right for large-scale batches
       where you'll process outputs later out-of-band. Hard fail if GCS
       push fails — no fallback in V1.

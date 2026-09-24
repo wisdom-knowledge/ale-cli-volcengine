@@ -180,6 +180,9 @@ def build_provider(spec: "ProviderSpec") -> "Provider":
     if kind == "aliyun":
         from ..environments.providers.aliyun import AliyunProvider
         return AliyunProvider(spec.config)
+    if kind == "volcengine":
+        from ..environments.providers.volcengine import VolcengineProvider
+        return VolcengineProvider(spec.config)
     if kind == "static":
         from ..environments.providers.static import StaticProvider
         return StaticProvider(spec.config)

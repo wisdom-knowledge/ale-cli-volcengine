@@ -1,0 +1,68 @@
+# ============================================================================
+# environment_volcengine.yaml — run ALE on Volcengine (ECS + TOS). Volcengine
+# counterpart of environment_aliyun.yaml; same per-snapshot model and the SAME
+# image-family names.
+# ============================================================================
+# Hardcoded conventions, no ${env:...} — Volcengine credentials come from your
+# `ve` profile (`ve configure` / `ve login`) or the VOLCENGINE_ACCESS_KEY +
+# VOLCENGINE_SECRET_KEY env vars; the VPC, subnets and images are resolved by
+# name/tag at run time (created once per scripts/volcengine/). Per snapshot:
+#   • image            image family: ale-ubuntu22 (Linux) or ale-win10 /
+#                      ale-win-server (Windows — pick either).
+#   • security_group   the firewall, by name or sg- id (gcloud analogue: `network`).
+#   • zones            Volcengine zone ids, tried in order on capacity errors.
+#   • resolution       [w, h] Windows desktop size (Windows only; Linux ignores it).
+#   • iam_role_name    instance IAM role for in-box TOS access (only for tos://
+#                      task data / output).
+#
+# Only the CPU snapshots are defined, matching environment_aliyun.yaml; the
+# public task list (cpu_unlicensed.txt) is exactly the set that runs here.
+# ----------------------------------------------------------------------------
+
+snapshots:
+
+  cpu-free-ubuntu:            # Linux — the bulk of tasks
+    provider: volcengine
+    image: ale-ubuntu22
+    volcengine:
+      region: cn-beijing
+      security_group: ale-sandbox
+      instance_prefix: ale
+      iam_role_name: ale-sandbox
+      zones: [cn-beijing-a, cn-beijing-b, cn-beijing-c]
+
+  cpu-free:                   # Windows
+    provider: volcengine
+    image: ale-win10
+    resolution: [1024, 768]
+    volcengine:
+      region: cn-beijing
+      security_group: ale-sandbox
+      instance_prefix: ale
+      iam_role_name: ale-sandbox
+      zones: [cn-beijing-a, cn-beijing-b, cn-beijing-c]
+
+  cpu-license:                # Windows (licensed-software tasks)
+    provider: volcengine
+    image: ale-win10
+    resolution: [1024, 768]
+    volcengine:
+      region: cn-beijing
+      security_group: ale-sandbox
+      instance_prefix: ale
+      iam_role_name: ale-sandbox
+      zones: [cn-beijing-a, cn-beijing-b, cn-beijing-c]
+
+# ---------------------------------------------------------------------------
+# Task data + output (mirrors environment.yaml).
+# ---------------------------------------------------------------------------
+# Where task data comes from: "baked_in_sandbox" (baked into the image) | "tos://<bucket>".
+task_data_source: baked_in_sandbox
+
+# What to do with each run's output: null | "local" | "tos://<bucket>". The
+# snapshots already reference the `ale-sandbox` IAM role; to keep output in TOS,
+# create that role (trusted by ECS, with TOS write access) and set the bucket
+# here. (If the role doesn't exist it's skipped for non-bucket output, so local
+# runs need nothing.)
+output_path: null
+# output_path: local          # uncomment to fetch each run's output back to the host

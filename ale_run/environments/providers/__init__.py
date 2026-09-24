@@ -6,6 +6,7 @@
   - :class:`GcloudProvider` (``gcloud.py``): ephemeral GCE VMs.
   - :class:`AwsProvider` (``aws.py``): ephemeral EC2 instances.
   - :class:`AliyunProvider` (``aliyun.py``): ephemeral Alibaba Cloud ECS instances.
+  - :class:`VolcengineProvider` (``volcengine.py``): ephemeral Volcengine ECS instances.
   - :class:`StaticProvider` (``static.py``): a pre-existing VM endpoint.
   - :class:`DockerProvider` (``docker.py``): ephemeral Docker containers.
   - :class:`QemuProvider` (``qemu.py``): ephemeral local QEMU VMs in Docker.
@@ -14,6 +15,7 @@
 from ...base_interface import SandboxSpec, Provider, ReleaseMode, SandboxHandle
 from .aws import AwsProvider, AwsProviderConfig
 from .aliyun import AliyunProvider, AliyunProviderConfig
+from .volcengine import VolcengineProvider, VolcengineProviderConfig
 from .docker import DockerProvider, DockerProviderConfig
 from .gcloud import GcloudProvider, GcloudProviderConfig
 from .qemu import QemuProvider, QemuProviderConfig
@@ -25,6 +27,8 @@ __all__ = [
     "AwsProviderConfig",
     "AliyunProvider",
     "AliyunProviderConfig",
+    "VolcengineProvider",
+    "VolcengineProviderConfig",
     "DockerProvider",
     "DockerProviderConfig",
     "GcloudProvider",

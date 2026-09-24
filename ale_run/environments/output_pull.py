@@ -8,6 +8,7 @@ Dispatched by the lifecycle on ``artifacts_path.output_path``:
   ``"gs://X"`` → :func:`push_to_gcs` (VM-side gsutil; nothing on host)
   ``"s3://X"`` → :func:`push_to_s3` (in-box aws CLI; nothing on host)
   ``"oss://X"`` → :func:`push_to_oss` (in-box ossutil; nothing on host)
+  ``"tos://X"`` → :func:`push_to_tos` (in-box tosutil; nothing on host)
 """
 
 from __future__ import annotations
@@ -409,3 +410,27 @@ async def push_to_oss(
             f"ossutil cp failed (rc={r.returncode}): {(r.stderr or '')[:300]}"
         )
     return {"transport": "oss", "oss_path": oss_dst}
+
+
+async def push_to_tos(
+    sandbox: SandboxHandle, task_data: TaskDataSpec, *,
+    run_id: str, bucket: str,
+) -> dict[str, Any]:
+    """``output_path == 'tos://...'`` — in-box ``tosutil`` push.
+
+    Lands the env's output dir at ``<bucket>/<run_id>/output/``. Auth is the
+    instance's IAM role, via the same wrapper tosbucket stages data with.
+    ``-flat`` copies the directory's CONTENTS (not the dir itself) under dst.
+    """
+    from .task_data.tosbucket import tosutil
+
+    src = _output_dir(sandbox, task_data)
+    tos_dst = f"{bucket.rstrip('/')}/{run_id}/output/"
+    logger.info("push_to_tos: %s → %s", src, tos_dst)
+    r = await tosutil(sandbox, "cp", src, tos_dst, "-r", "-f", "-flat",
+                      timeout=_OSS_PUSH_TIMEOUT_S)
+    if r.returncode != 0:
+        raise RuntimeError(
+            f"tosutil cp failed (rc={r.returncode}): {(r.stderr or r.stdout or '')[:300]}"
+        )
+    return {"transport": "tos", "tos_path": tos_dst}
