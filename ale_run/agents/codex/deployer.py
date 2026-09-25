@@ -50,28 +50,47 @@ logger = logging.getLogger(__name__)
 _POLL_INTERVAL_S = 2.0
 _TERM_GRACE_S = 2.0
 
-# npm-installed native binary paths (Linux).
-# npm 11.x stopped hoisting platform deps so the nested copy is the one
-# codex.js's require.resolve actually picks. Both paths are tried for
-# replacement; whichever exists gets overwritten.
-_VENDOR_BINARY_LINUX_TOPLEVEL = (
-    "/usr/local/lib/node_modules/@openai/codex-linux-x64/"
-    "vendor/x86_64-unknown-linux-musl/codex/codex"
-)
-_VENDOR_BINARY_LINUX_NESTED = (
-    "/usr/local/lib/node_modules/@openai/codex/node_modules/"
-    "@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex/codex"
-)
-# Windows equivalents (used when the sandbox VM is Windows).
-_VENDOR_BINARY_WIN_TOPLEVEL = (
-    r"C:\Users\User\AppData\Roaming\npm\node_modules\@openai\codex-win32-x64"
-    r"\vendor\x86_64-pc-windows-msvc\codex\codex.exe"
-)
-_VENDOR_BINARY_WIN_NESTED = (
-    r"C:\Users\User\AppData\Roaming\npm\node_modules\@openai\codex"
-    r"\node_modules\@openai\codex-win32-x64"
-    r"\vendor\x86_64-pc-windows-msvc\codex\codex.exe"
-)
+# The npm packages that make up a codex install, per OS: the CLI package, the
+# platform package carrying the native binary, the Rust target triple, and the
+# binary basename. ``bin/codex.js`` locates the binary with
+# ``require.resolve('@openai/<plat>/package.json')`` and joins
+# ``vendor/<triple>/codex/<binary>`` — so the overlay must land wherever npm
+# actually installed that package.
+_VENDOR_LAYOUT = {
+    "linux": ("codex", "codex-linux-x64", "x86_64-unknown-linux-musl", "codex"),
+    "windows": ("codex", "codex-win32-x64", "x86_64-pc-windows-msvc", "codex.exe"),
+}
+
+# Legacy default global roots, tried only after asking npm (see
+# ``_npm_global_roots``). npm's real root is not fixed: the win10 image ships
+# Node unpacked from a zip, whose bundled npmrc pins the global prefix to the
+# node dir, so ``%APPDATA%\npm\node_modules`` may not exist at all.
+_VENDOR_FALLBACK_ROOTS = {
+    "linux": (
+        "/usr/local/lib/node_modules",
+        "/usr/lib/node_modules",
+        "~/.npm-global/lib/node_modules",
+    ),
+    "windows": (
+        r"C:\Users\User\AppData\Roaming\npm\node_modules",
+        r"C:\Program Files\nodejs\node_modules",
+        r"C:\nodejs\node_modules",
+    ),
+}
+
+def _vendor_candidates(
+    root: str, cli_pkg: str, plat_pkg: str, triple: str, binary: str
+) -> list[str]:
+    """Both npm vendor layouts for ``plat_pkg`` under a global ``node_modules`` root.
+
+    npm <= 10 hoists the platform package to the root; npm 11 stopped hoisting,
+    so the copy under ``@openai/codex`` is the one ``require.resolve`` finds.
+    """
+    vendor = os.path.join("vendor", triple, "codex", binary)
+    return [
+        os.path.join(root, "@openai", plat_pkg, vendor),
+        os.path.join(root, "@openai", cli_pkg, "node_modules", "@openai", plat_pkg, vendor),
+    ]
 
 
 class CodexDeployer(BaseAgentDeployer):
@@ -240,20 +259,99 @@ class CodexDeployer(BaseAgentDeployer):
             if npm_bin and npm_bin not in os.environ.get("PATH", ""):
                 os.environ["PATH"] = f"{npm_bin}{sep}{os.environ.get('PATH', '')}"
 
+    async def _npm_global_roots(self, is_linux: bool) -> list[str]:
+        """Every plausible npm global ``node_modules`` root, best guess first.
+
+        ``npm root -g`` is authoritative, but it is only as right as the npm we
+        invoke — the deployer may run a different npm than the one that
+        installed codex — so two further sources back it up: the modules dir
+        implied by the npm binary's own location, and the legacy fixed roots.
+        """
+        os_key = "linux" if is_linux else "windows"
+        roots: list[str] = []
+
+        npm = getattr(self, "_npm_path", None) or shutil.which("npm") or "npm"
+        try:
+            proc = await asyncio.to_thread(
+                subprocess.run,
+                [npm, "root", "-g"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if proc.returncode == 0:
+                roots.append((proc.stdout or "").strip().strip('"'))
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            logger.warning("codex: `npm root -g` failed: %s", exc)
+
+        # Where the running npm itself lives. Windows prefix -> <dir>\node_modules
+        # (the unpacked-node image installs globals into the node dir); Linux
+        # prefix -> <dir>/lib/node_modules. This is the source that survives a
+        # node shipped unpacked from a zip, whose bundled npmrc pins the prefix.
+        npm_dir = os.path.dirname(os.path.realpath(npm))
+        roots.append(
+            os.path.join(npm_dir, "node_modules") if not is_linux
+            else os.path.join(os.path.dirname(npm_dir), "lib", "node_modules")
+        )
+
+        roots.extend(_VENDOR_FALLBACK_ROOTS[os_key])
+
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for root in roots:
+            key = os.path.normcase(os.path.abspath(os.path.expanduser(root)))
+            if key not in seen:
+                seen.add(key)
+                ordered.append(os.path.expanduser(root))
+        return ordered
+
+    async def _vendor_binary_paths(self, is_linux: bool) -> list[str]:
+        """Existing vendor binaries to overlay, most authoritative first.
+
+        Roots are searched in order — ``npm root -g`` first — because a real
+        install lives under exactly one root; the later roots are heuristics.
+        Within a root, the nested copy is tried before the hoisted one, matching
+        what ``require.resolve`` in ``bin/codex.js`` reaches first (Node looks
+        in the package's own ``node_modules`` before walking up).
+        """
+        os_key = "linux" if is_linux else "windows"
+        cli_pkg, plat_pkg, triple, binary = _VENDOR_LAYOUT[os_key]
+        roots = await self._npm_global_roots(is_linux)
+
+        found: list[str] = []
+        for root in roots:
+            hoisted, nested = _vendor_candidates(
+                root, cli_pkg, plat_pkg, triple, binary
+            )
+            for hit in (nested, hoisted):
+                if os.path.isfile(hit) and hit not in found:
+                    found.append(hit)
+        if not found:
+            logger.info(
+                "codex: no existing @openai/%s vendor binary under any of: %s",
+                plat_pkg, ", ".join(roots),
+            )
+        else:
+            logger.info("codex: vendor binary candidates: %s", ", ".join(found))
+        return found
+
     async def _replace_native_binary(self, url: str) -> None:
         """Download a patched binary from URL and replace the vendor copy.
 
-        Tries both the top-level and nested npm vendor paths. On Linux,
-        vendor dirs are typically root-owned, so we stage to /tmp and
-        use sudo -n mv if needed.
+        The vendor binary is *discovered* (see ``_vendor_binary_paths``) rather
+        than assumed to sit under a fixed global prefix — npm's global root is
+        not fixed, and a miss here yields a silent no-op that then trips the
+        pinned-version check in ``install``. On Linux, vendor dirs are typically
+        root-owned, so we stage to a temp file and use sudo -n cp if needed.
         """
         # Single source of OS truth: the sandbox flag set in install() (the
         # deployer runs in-VM, so this matches the running platform).
         is_linux = not self._is_windows
-        if is_linux:
-            vendor_paths = [_VENDOR_BINARY_LINUX_TOPLEVEL, _VENDOR_BINARY_LINUX_NESTED]
-        else:
-            vendor_paths = [_VENDOR_BINARY_WIN_TOPLEVEL, _VENDOR_BINARY_WIN_NESTED]
+        vendor_paths = await self._vendor_binary_paths(is_linux)
+        if not vendor_paths:
+            logger.warning(
+                "codex: no npm vendor binary found for %s -- searched %s",
+                "linux" if is_linux else "windows",
+                ", ".join(await self._npm_global_roots(is_linux)),
+            )
 
         # Download the patched binary to a temp location. mkstemp (not the
         # deprecated mktemp) creates the file atomically with a private name; we
@@ -482,15 +580,6 @@ class CodexDeployer(BaseAgentDeployer):
 
         prompt_file.write_text(prompt, encoding="utf-8")
 
-        # Codex requires being in a git repo
-        git_dir = wd / ".git"
-        if not git_dir.exists():
-            await asyncio.to_thread(
-                subprocess.run,
-                ["git", "init"],
-                capture_output=True, cwd=str(wd), timeout=15,
-            )
-
         argv = self._build_argv(cfg)
         env = self._build_env(cfg)
 
@@ -592,8 +681,15 @@ class CodexDeployer(BaseAgentDeployer):
         stdin. Building a plain argv (no shell) works identically on
         Linux and Windows (the win npm shim is ``codex.cmd``, which
         ``subprocess`` launches directly).
+
+        ``--skip-git-repo-check`` lets codex run in the (non-git) work dir
+        without shelling out to ``git init`` -- git is not on the win10
+        image's PATH.
         """
-        argv = [self._codex_path, "exec", "--model", cfg.model, "--json"]
+        argv = [
+            self._codex_path, "exec", "--model", cfg.model, "--json",
+            "--skip-git-repo-check",
+        ]
         if cfg.yolo:
             argv += ["--dangerously-bypass-approvals-and-sandbox"]
         else:
