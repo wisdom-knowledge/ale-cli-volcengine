@@ -31,7 +31,7 @@ def _cfg(**over):
 
 def _run_args(cfg):
     return ve_mod._build_run_args(
-        name="ale-x", image_id="image-1", instance_type="ecs.g3i.2xlarge",
+        name="ale-x", image_id="image-1", instance_type="ecs.g4i.2xlarge",
         zone_id="cn-beijing-a", subnet_id="subnet-1", security_group_id="sg-1",
         cfg=cfg, snapshot_tag="cpu-free-ubuntu",
     )
@@ -88,7 +88,7 @@ def test_tos_output_flags_bucket_output(tmp_path):
 def test_run_args_public_ip_and_image_credential():
     args = _run_args(_cfg())
     kv = _pairs(args)
-    assert kv["--InstanceTypeId"] == "ecs.g3i.2xlarge"
+    assert kv["--InstanceTypeId"] == "ecs.g4i.2xlarge"
     assert kv["--NetworkInterfaces.1.SubnetId"] == "subnet-1"
     assert kv["--NetworkInterfaces.1.SecurityGroupIds.1"] == "sg-1"
     assert kv["--Volumes.1.Size"] == "100"

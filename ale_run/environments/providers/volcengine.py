@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
 
 # Default instance when a task_card declares no ``vm.machineType``. CPU falls
 # back C→G (see _instance_chain); GPU has no instance fallback.
-_DEFAULT_CPU_INSTANCE = "ecs.g3i.2xlarge"          # 8 vCPU / 32 GiB, general
+_DEFAULT_CPU_INSTANCE = "ecs.g4i.2xlarge"          # 8 vCPU / 32 GiB, general
 _DEFAULT_GPU_INSTANCE = "ecs.gni2.8xlarge"         # A10 GPU instance
 
 # Launch retry tuning.
@@ -235,7 +235,7 @@ def _build_provider_config(raw: dict[str, Any]) -> VolcengineProviderConfig:
 def _cpu_family_fallback(instance_type: str) -> str | None:
     """C-family → G fallback, keeping the size suffix.
 
-    ``ecs.c3i.2xlarge`` → ``ecs.g3i.2xlarge``. Returns None for non-C families.
+    ``ecs.c4i.2xlarge`` → ``ecs.g4i.2xlarge``. Returns None for non-C families.
     """
     m = re.fullmatch(r"(ecs\.)c(\w*?)(\..+)", instance_type)
     if m:
@@ -255,10 +255,11 @@ def _instance_chain(instance_type: str, *, is_gpu: bool) -> tuple[str, ...]:
     return (instance_type, fb) if fb else (instance_type,)
 
 
-# ecs.g3i is a 1:4 vCPU:GiB general-purpose family, which matches
+# ecs.g4i is a 1:4 vCPU:GiB general-purpose family, which matches
 # the GCE ``*-standard-*`` ratio closely enough for every task shape we run.
-# vCPU count → ecs.g3i size suffix.
-_ECS_G3I_SIZES: tuple[tuple[int, str], ...] = (
+# (Not g3i: public Windows images reject it with InvalidImage.InstanceTypeMismatch.)
+# vCPU count → ecs.g4i size suffix.
+_ECS_G4I_SIZES: tuple[tuple[int, str], ...] = (
     (2, "large"), (4, "xlarge"), (8, "2xlarge"), (16, "4xlarge"),
     (32, "8xlarge"), (64, "16xlarge"),
 )
@@ -273,7 +274,7 @@ def _resolve_instance_type(machine_type: str | None, *, is_gpu: bool) -> str:
     * ``None`` → the CPU/GPU default.
     * an ``ecs.*`` string → used verbatim (an explicit Volcengine override).
     * a GCE-style name → parsed to a vCPU count and mapped to the matching
-      ``ecs.g3i`` size.
+      ``ecs.g4i`` size.
     """
     default = _DEFAULT_GPU_INSTANCE if is_gpu else _DEFAULT_CPU_INSTANCE
     if not machine_type:
@@ -289,9 +290,9 @@ def _resolve_instance_type(machine_type: str | None, *, is_gpu: bool) -> str:
     if is_gpu:
         return _DEFAULT_GPU_INSTANCE
     size = next(
-        (s for cap, s in _ECS_G3I_SIZES if shape.vcpus <= cap), _ECS_G3I_SIZES[-1][1]
+        (s for cap, s in _ECS_G4I_SIZES if shape.vcpus <= cap), _ECS_G4I_SIZES[-1][1]
     )
-    return f"ecs.g3i.{size}"
+    return f"ecs.g4i.{size}"
 
 
 # ============================================================================

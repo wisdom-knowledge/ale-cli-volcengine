@@ -1,0 +1,12 @@
+# scripted_gui — no-LLM GUI agent for demo/hello + demo/hello_win. Launches the
+# Acme app, types the Order ID, screenshots each step and writes the code, so
+# the task's real evaluate() scores the run. Pipeline smoke without model tokens.
+# Reference as:  agents: [ configs/agents/scripted_gui.yaml ]
+
+harness: scripted_gui
+executor: local
+model: none
+
+config:
+  connect_timeout_s: 120
+  app_load_wait_s: 8.0

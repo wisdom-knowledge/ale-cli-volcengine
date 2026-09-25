@@ -33,7 +33,7 @@ BUCKET="ale-images-$ACCT"
 GCS=gs://ale-data-public/images
 BILLING="${ALE_GCS_BILLING_PROJECT:-agenthle-488519}"   # requester-pays GCS reads
 SG_NAME=ale-sandbox
-BAKE_TYPE="${ALE_BAKE_INSTANCE_TYPE:-ecs.g3i.2xlarge}"
+BAKE_TYPE="${ALE_BAKE_INSTANCE_TYPE:-ecs.g4i.2xlarge}"
 TOSUTIL_URL="${ALE_TOSUTIL_URL:-https://tos-tools.tos-cn-beijing.volces.com/linux/amd64/tosutil}"
 
 # Native OpenAPI call: `ve <svc> <Action> <PascalCase params...>` in region $R.
