@@ -29,7 +29,7 @@ J()  { python3 -c "import sys,json;print(json.load(sys.stdin)$1)"; }
 R="${ALE_VOLC_REGION:-cn-beijing}"
 Z="${ALE_VOLC_ZONE:-$R-a}"
 ACCT=$(ve sts GetCallerIdentity | J "['Result']['AccountId']")
-BUCKET="ale-images-$ACCT"
+BUCKET="ale-image-import-$ACCT"
 GCS=gs://ale-data-public/images
 BILLING="${ALE_GCS_BILLING_PROJECT:-agenthle-488519}"   # requester-pays GCS reads
 SG_NAME=ale-sandbox
