@@ -54,8 +54,13 @@ npm install -g @openai/codex@0.114.0
 
 | OS | Shim | Overlaid vendor binary | Version command |
 |---|---|---|---|
-| Linux | `/usr/local/bin/codex` (npm shim) | `…/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex/codex` (top-level **or** nested npm path) | `codex --version` -> `codex-cli 0.0.0-agenthle-20260614` |
-| Windows | `codex.cmd` (npm shim) | `…\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\codex\codex.exe` | same fork version |
+| Linux | `/usr/local/bin/codex` (npm shim) | `<npm root -g>/@openai/[codex/node_modules/@openai/]codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex/codex` | `codex --version` -> `codex-cli 0.0.0-agenthle-20260614` |
+| Windows | `codex.cmd` (npm shim) | `<npm root -g>\@openai\[codex\node_modules\@openai\]codex-win32-x64\vendor\x86_64-pc-windows-msvc\codex\codex.exe` | same fork version |
+
+The vendor dir is discovered at install time, not assumed: `npm root -g`, then the
+modules dir beside the running npm (the win10 image's zip-unpacked node pins the
+global prefix to the node dir), then legacy fixed roots. Within a root the nested
+copy (npm >= 11 no longer hoists) is tried before the hoisted one.
 
 ### Required Environment
 
@@ -210,8 +215,9 @@ Notes:
   `/v1/responses` translation layer drops `cache_control` for Anthropic models.
 - **`apply_patch` on Windows**: Upstream `.bat` shim corruption -- resolved via
   patched binary when `patched_binary_url` is set.
-- **Codex requires git repo**: The working directory must be a git repository.
-  The deployer initializes one via `git init` if missing.
+- **Codex requires git repo**: `codex exec` refuses a non-git working
+  directory. The deployer passes `--skip-git-repo-check` instead of running
+  `git init`, since git is not on the win10 image's PATH.
 - **NDJSON BOM**: Output may include UTF-8 BOM prefix. The parser strips BOMs.
 - **Orphaned MCP processes**: on cancellation `launch()` signals codex's whole
   process group (POSIX `start_new_session` + `killpg`), so stdio MCP servers and
